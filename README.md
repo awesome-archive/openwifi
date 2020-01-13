@@ -1,21 +1,23 @@
 # openwifi
 <img src="./openwifi-arch.jpg" width="900">
 
-**openwifi:** Linux mac80211 compatible full-stack Wi-Fi design based on SDR (Software Defined Radio).
+**openwifi:** Linux mac80211 compatible full-stack IEEE802.11/Wi-Fi design based on SDR (Software Defined Radio).
 
-This repository includes Linux driver and software. [openwifi-hw](https://github.com/open-sdr/openwifi-hw) repository has the FPGA design. [[Detailed architecture](https://github.com/open-sdr/openwifi/tree/master/doc)]
+This repository includes Linux driver and software. [openwifi-hw](https://github.com/open-sdr/openwifi-hw) repository has the FPGA design. [[Detailed document](https://github.com/open-sdr/openwifi/tree/master/doc)]
 
-[Demo [video](https://youtu.be/NpjEaszd5u4). Video [download](https://users.ugent.be/~xjiao/openwifi-low-aac.mp4)]   [openwifi [maillist](https://lists.ugent.be/wws/subscribe/openwifi)]
+[Demo [video](https://youtu.be/NpjEaszd5u4) and video [download](https://users.ugent.be/~xjiao/openwifi-low-aac.mp4)]   [openwifi [maillist](https://lists.ugent.be/wws/subscribe/openwifi)] [[Cite openwifi project](#cite-openwifi-project)]
 
-Openwifi code has dual licenses. AGPLv3 is the opensource license. For non-opensource license, please contact Filip.Louagie@UGent.be. Openwifi project also leverages some 3rd party modules. It is your duty to check and follow licenses of those modules according to your purpose. You can find [an example explanation from Analog Devices](https://github.com/analogdevicesinc/hdl/blob/master/LICENSE) for this compound license conditions.
+Openwifi code has dual licenses. AGPLv3 is the opensource license. For non-opensource license, please contact Filip.Louagie@UGent.be. Openwifi project also leverages some 3rd party modules. It is user's duty to check and follow licenses of those modules according to the purpose/usage. You can find [an example explanation from Analog Devices](https://github.com/analogdevicesinc/hdl/blob/master/LICENSE) for this compound license conditions.
 
 Openwifi was born in [ORCA project](https://www.orca-project.eu/) (EU's Horizon2020 programme under agreement number 732174).
 
 **Features:**
 
-* 802.11a/g; 802.11n MCS 0~7; 20MHz
-* Mode tested: Ad-hoc; Station; AP
-* DCF (CSMA/CA) low MAC layer in FPGA
+* 802.11a/g
+* 802.11n MCS 0~7 (Only PHY rx for now. Full system support of 802.11n will come soon)
+* 20MHz bandwidth; 70 MHz to 6 GHz frequency range
+* Mode tested: Ad-hoc; Station; AP, Monitor
+* DCF (CSMA/CA) low MAC layer in FPGA (10us SIFS is achieved)
 * Configurable channel access priority parameters:
   * duration of RTS/CTS, CTS-to-self
   * SIFS/DIFS/xIFS/slot-time/CW/etc
@@ -82,14 +84,17 @@ iwlist sdr0 scan
         (Wait for connection done, then open another ssh terminal)
         dhclient sdr0
         (Wait for its done, then you should have connection)
-        
+
+* Real-time control/config via sdrctl (time slice config, etc), please go to openwifi/doc.
+
+* ***Note***: The files (BOOT.BIN, drivers, etc) in pre-built SD card img might not have the latest bug-fixes/features. Check related section in this README on how to generate them and update them if needed.
+
 * ***Note***: If openwifi stops working after ~2 hours, it means the evaluation license of Xilinx Viterbi decoder has expired. You need to power cycle the board. Run this command several times on board to confirm:
   
         root@analog:~/openwifi# ./sdrctl dev sdr0 get reg rx 20
         SENDaddr: 00040050
         reg  val: 34be0123
         (If the last number of reg val is always 3, that means the Viterbi decoder stops working)
-* Real-time control/config via sdrctl (time slice config, etc), please go to openwifi/doc.
 
 **Build openwifi Linux img based on openwifi FPGA and driver:**
 
@@ -138,7 +143,7 @@ dtc -I dts -O dtb -o devicetree.dtb devicetree.dts
 
 ```
 cd $OPENWIFI_DIR/kernel_boot
-source $XILINX_DIR/Vivado/2017.4/settings64.sh
+source $XILINX_DIR/SDK/2017.4/settings64.sh
 ./build_boot_bin.sh ../openwifi-hw/zc706_fmcs2/sdk/system_top_hw_platform_0/system.hdf u-boot-zc70x.elf
 (u-boot-zc70x.elf is included in the original Analog Devices Linux img)
 ```
@@ -173,11 +178,14 @@ sync
 * Insert the SD card to the board, power on and run serial console (such as minicom) from a PC via USB-UART cable to the board. After booting completes, in the PC serial console:
 
 ```
-ln -s /lib/modules/4.14.0-g4220d5d24c6c /lib/modules/4.14.0-g4220d5d
-(in case some Linux use short hash)
 depmod
 (Ignore the error messages)
 modprobe mac80211
+(if you get error like: could not open moddep file 'lib/modules/4.14.0XXXYYYZZZ/modules.dep.bin', you could make a symbol link and modprobe again)
+ln -s /lib/modules/4.14.0-g4220d5d24c6c /lib/modules/4.14.0XXXYYYZZZ
+depmod
+modprobe mac80211
+
 cd openwifi
 ./wgd.sh
 (For fmcomms4, you need an extra command: ./set_ant.sh rx1 tx1)
@@ -284,3 +292,39 @@ make
   sudo ip route add 192.168.13.0/24 via 192.168.10.122 dev ethX
   ```
   * Now you can connect openwifi hotspot from your phone/laptop and access the internet.
+
+**Connecting a client to openwifi AP in 2.4GHz**
+
+Openwifi only applies OFDM as its modulation scheme and as a result, it is not backward compatible with 802.11b clients or modes of operation. This is usually the case during beacon transmission, connection establishment, and robust communication.
+
+As a solution to this problem, openwifi can be fully controlled only if communicating with APs/clients instantiated using hostapd/wpa_supplicant userspace programs respectively.
+
+For hostapd program, 802.11b rates can be suppressed using configuration commands (i.e. supported_rates, basic_rates) and an example configuration file is provided (i.e. hostapd-openwifi.conf). One small caveat to this one comes from fullMAC Wi-Fi cards as they must implement the *NL80211_TXRATE_LEGACY* NetLink handler at the device driver level.
+
+On the other hand, the wpa_supplicant program on the client side (commercial Wi-Fi dongle/board) cannot suppress 802.11b rates out of the box in 2.4GHz band, so there will be an issue when connecting openwifi (OFDM only). A patched wpa_supplicant should be used at the client side.
+
+```
+cd openwifi/user_space
+wget http://w1.fi/releases/wpa_supplicant-2.1.tar.gz
+tar xzvf wpa_supplicant-2.1.tar.gz
+patch -d wpa_supplicant-2.1/src/drivers/ < driver_nl80211.patch
+cd wpa_supplicant-2.1/wpa_supplicant/
+cp defconfig .config
+sed -i 's/#CONFIG_LIBNL32.*/CONFIG_LIBNL32=y/g' .config
+make -j16
+sudo make install
+cd ../../
+rm -r wpa_supplicant-2.1/ wpa_supplicant-2.1.tar.gz
+```
+
+## cite openwifi project
+
+Any use of openwifi project which results in a publication should include a citation via (bibtex example):
+```
+@electronic{openwifigithub,
+            author = {Xianjun, Jiao and Wei, Liu and Michael, Mehari},
+            title = {open-source IEEE802.11/Wi-Fi baseband chip/FPGA design},
+            url = {https://github.com/open-sdr/openwifi},
+            year = {2019},
+}
+```
